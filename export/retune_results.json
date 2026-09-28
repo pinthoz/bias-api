@@ -1,0 +1,104 @@
+{
+  "split": {
+    "sentences": 3739,
+    "val": 300,
+    "test": 747
+  },
+  "thresholds": {
+    "published_fp32": [
+      0.4265,
+      0.4071,
+      0.3938,
+      0.3462,
+      0.3669,
+      0.3184,
+      0.363
+    ],
+    "rederived_fp32": [
+      0.4265,
+      0.4071,
+      0.3938,
+      0.3462,
+      0.3669,
+      0.3184,
+      0.363
+    ],
+    "int8": [
+      0.4132,
+      0.3736,
+      0.3677,
+      0.3578,
+      0.3706,
+      0.3,
+      0.3605
+    ]
+  },
+  "test": {
+    "fp32 + published thresholds": {
+      "GEN": {
+        "precision": 0.8124,
+        "recall": 0.6818,
+        "f1": 0.7414
+      },
+      "UNFAIR": {
+        "precision": 0.4133,
+        "recall": 0.4968,
+        "f1": 0.4512
+      },
+      "STEREO": {
+        "precision": 0.7592,
+        "recall": 0.7082,
+        "f1": 0.7328
+      },
+      "micro": {
+        "precision": 0.629,
+        "recall": 0.6448,
+        "f1": 0.6368
+      }
+    },
+    "int8 + published thresholds": {
+      "GEN": {
+        "precision": 0.7927,
+        "recall": 0.6938,
+        "f1": 0.74
+      },
+      "UNFAIR": {
+        "precision": 0.4249,
+        "recall": 0.4232,
+        "f1": 0.4241
+      },
+      "STEREO": {
+        "precision": 0.7935,
+        "recall": 0.635,
+        "f1": 0.7054
+      },
+      "micro": {
+        "precision": 0.6337,
+        "recall": 0.6057,
+        "f1": 0.6194
+      }
+    },
+    "int8 + int8 thresholds": {
+      "GEN": {
+        "precision": 0.8084,
+        "recall": 0.6644,
+        "f1": 0.7294
+      },
+      "UNFAIR": {
+        "precision": 0.3996,
+        "recall": 0.4779,
+        "f1": 0.4353
+      },
+      "STEREO": {
+        "precision": 0.7579,
+        "recall": 0.7069,
+        "f1": 0.7315
+      },
+      "micro": {
+        "precision": 0.6085,
+        "recall": 0.6372,
+        "f1": 0.6225
+      }
+    }
+  }
+}

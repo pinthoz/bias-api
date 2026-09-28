@@ -1,0 +1,10 @@
+# Offline tooling: ONNX export, int8 quantization and threshold re-tuning
+torch==2.14.0
+transformers==5.17.0
+huggingface_hub==1.33.0
+onnx==1.23.0
+onnxruntime==1.23.2
+numpy==2.2.6
+datasets==5.0.1
+scikit-learn==1.7.2
+scipy==1.15.3

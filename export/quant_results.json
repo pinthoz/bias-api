@@ -1,0 +1,155 @@
+{
+  "sizes_mb": {
+    "model.onnx": 415.6,
+    "model.int8.onnx": 104.6
+  },
+  "test_sentences": 748,
+  "fp32": {
+    "session_load_s": 6.1,
+    "latency_ms_one_sentence": 114.4,
+    "per_label": {
+      "O": {
+        "precision": 0.8744,
+        "recall": 0.9593,
+        "f1": 0.9149,
+        "support": 9515
+      },
+      "B-STEREO": {
+        "precision": 0.75,
+        "recall": 0.4528,
+        "f1": 0.5647,
+        "support": 477
+      },
+      "I-STEREO": {
+        "precision": 0.7738,
+        "recall": 0.7559,
+        "f1": 0.7647,
+        "support": 2466
+      },
+      "B-GEN": {
+        "precision": 0.6279,
+        "recall": 0.5899,
+        "f1": 0.6083,
+        "support": 1273
+      },
+      "I-GEN": {
+        "precision": 0.5417,
+        "recall": 0.4613,
+        "f1": 0.4983,
+        "support": 633
+      },
+      "B-UNFAIR": {
+        "precision": 0.4305,
+        "recall": 0.4974,
+        "f1": 0.4615,
+        "support": 386
+      },
+      "I-UNFAIR": {
+        "precision": 0.3617,
+        "recall": 0.4005,
+        "f1": 0.3801,
+        "support": 382
+      }
+    },
+    "per_category": {
+      "GEN": {
+        "precision": 0.8243,
+        "recall": 0.5881,
+        "f1": 0.6865,
+        "support": 1906
+      },
+      "UNFAIR": {
+        "precision": 0.506,
+        "recall": 0.4974,
+        "f1": 0.5016,
+        "support": 768
+      },
+      "STEREO": {
+        "precision": 0.8241,
+        "recall": 0.7448,
+        "f1": 0.7824,
+        "support": 2943
+      }
+    }
+  },
+  "int8": {
+    "session_load_s": 1.74,
+    "latency_ms_one_sentence": 79.8,
+    "per_label": {
+      "O": {
+        "precision": 0.8613,
+        "recall": 0.9686,
+        "f1": 0.9118,
+        "support": 9515
+      },
+      "B-STEREO": {
+        "precision": 0.7336,
+        "recall": 0.4675,
+        "f1": 0.5711,
+        "support": 477
+      },
+      "I-STEREO": {
+        "precision": 0.8071,
+        "recall": 0.6788,
+        "f1": 0.7374,
+        "support": 2466
+      },
+      "B-GEN": {
+        "precision": 0.5857,
+        "recall": 0.6363,
+        "f1": 0.6099,
+        "support": 1273
+      },
+      "I-GEN": {
+        "precision": 0.5582,
+        "recall": 0.4471,
+        "f1": 0.4965,
+        "support": 633
+      },
+      "B-UNFAIR": {
+        "precision": 0.433,
+        "recall": 0.4352,
+        "f1": 0.4341,
+        "support": 386
+      },
+      "I-UNFAIR": {
+        "precision": 0.4011,
+        "recall": 0.3874,
+        "f1": 0.3941,
+        "support": 382
+      }
+    },
+    "per_category": {
+      "GEN": {
+        "precision": 0.8056,
+        "recall": 0.6154,
+        "f1": 0.6978,
+        "support": 1906
+      },
+      "UNFAIR": {
+        "precision": 0.5288,
+        "recall": 0.4544,
+        "f1": 0.4888,
+        "support": 768
+      },
+      "STEREO": {
+        "precision": 0.854,
+        "recall": 0.6755,
+        "f1": 0.7543,
+        "support": 2943
+      }
+    }
+  },
+  "agreement": {
+    "prob_abs_diff_max": 0.436,
+    "prob_abs_diff_mean": 0.01522,
+    "token_label_decisions_changed": 1641,
+    "token_label_decisions_total": 97118,
+    "token_category_agreement": {
+      "GEN": 0.98443,
+      "UNFAIR": 0.97888,
+      "STEREO": 0.9667
+    },
+    "sentence_biased_flips": 16
+  }
+}
