@@ -1,0 +1,111 @@
+# Every push to main: build the arm64 image, push it to ECR, terraform apply,
+# then smoke-test the live API.
+#
+# AWS access is keyless: GitHub issues an OIDC token for this run and AWS
+# exchanges it for temporary credentials of the role created in
+# infra/bootstrap (which only trusts the main branch of this repo).
+#
+# Repository settings needed (Settings > Secrets and variables > Actions):
+#   variable AWS_ROLE_ARN   output deploy_role_arn of infra/bootstrap
+#   variable STATE_BUCKET   output bucket of infra/bootstrap
+#   secret   ALERT_EMAIL    email for the CloudWatch alarm
+
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write # request the OIDC token
+  contents: read
+
+# Never run two deploys at once (the S3 state lock would also stop the second)
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: eu-west-1
+  IMAGE_TAG: ${{ github.sha }}
+
+jobs:
+  build:
+    # Native arm64 runner: no QEMU emulation, same architecture as the Lambda
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # The ONNX model is not in git (see README); fetch it and verify it
+      - name: Fetch model
+        run: |
+          aws s3 cp "s3://${{ vars.STATE_BUCKET }}/model/model.int8.onnx" app/model/
+          cd app/model && sha256sum -c model.int8.onnx.sha256
+
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push
+        working-directory: app
+        run: |
+          IMAGE="${{ steps.ecr.outputs.registry }}/bias-api:$IMAGE_TAG"
+          docker build --platform linux/arm64 --provenance=false -t "$IMAGE" .
+          docker push "$IMAGE"
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra
+    env:
+      TF_VAR_image_tag: ${{ github.sha }}
+      TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.16.4
+          terraform_wrapper: false # plain stdout for `terraform output -raw`
+
+      - run: terraform init -input=false
+
+      - run: terraform plan -input=false -out=tfplan
+
+      - run: terraform apply -input=false tfplan
+
+      - name: Smoke test
+        run: |
+          KEY=$(terraform output -raw api_key)
+          echo "::add-mask::$KEY"
+          URL=$(terraform output -raw api_url)
+          # Wait for the new image to be live
+          aws lambda wait function-updated-v2 --function-name bias-api
+          # Retry: the first request after a deploy is a cold start
+          for i in 1 2 3; do
+            CODE=$(curl -s -o body.json -w '%{http_code}' -X POST "$URL" \
+              -H "x-api-key: $KEY" -H "Content-Type: application/json" \
+              -d '{"text": "Women are bad at math."}')
+            echo "attempt $i: HTTP $CODE"
+            [ "$CODE" = 200 ] && break
+            sleep 10
+          done
+          cat body.json; echo
+          [ "$CODE" = 200 ]
+          # Without the key the API must refuse
+          NOKEY=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$URL" \
+            -H "Content-Type: application/json" -d '{"text": "x"}')
+          echo "without key: HTTP $NOKEY"
+          [ "$NOKEY" = 401 ]

@@ -10,6 +10,7 @@ MODEL_DIR = os.environ.get("MODEL_DIR", "/opt/model")
 MODEL_FILE = os.environ.get("MODEL_FILE", "model.onnx")
 # Thresholds are tuned per model file (int8 shifts the probabilities)
 THRESHOLDS_FILE = os.environ.get("THRESHOLDS_FILE", "thresholds.json")
+MAX_BATCH = int(os.environ.get("MAX_BATCH", "32"))
 
 # Cold start
 tokenizer = Tokenizer.from_file(f"{MODEL_DIR}/tokenizer.json")
@@ -101,18 +102,7 @@ def response(status, payload):
     }
 
 
-# Every request
-def handler(event, context):
-    raw = event.get("body") or "{}"
-    if event.get("isBase64Encoded"):
-        raw = base64.b64decode(raw).decode()
-    try:
-        text = json.loads(raw)["text"]
-    except (json.JSONDecodeError, KeyError, TypeError):
-        text = None
-    if not isinstance(text, str) or not text.strip():
-        return response(400, {"error": "send a JSON with a non-empty string field 'text'"})
-
+def analyze(text):
     enc = tokenizer.encode(text)
     feeds = {
         "input_ids": np.array([enc.ids], dtype=np.int64),
@@ -124,13 +114,48 @@ def handler(event, context):
     probs = sigmoid(session.run(None, feeds)[0])[0]  # [seq, num_labels]
     tokens = find_words(text, enc, probs)
     spans = find_spans(text, tokens)
-    return response(
-        200,
-        {
-            "biased": bool(spans),
-            "categories": sorted({s["category"] for s in spans}),
-            "biased_tokens": [t["token"] for t in tokens if t["labels"]],
-            "spans": spans,
-            "tokens": tokens,
-        },
-    )
+    return {
+        "biased": bool(spans),
+        "categories": sorted({s["category"] for s in spans}),
+        "biased_tokens": [t["token"] for t in tokens if t["labels"]],
+        "spans": spans,
+        "tokens": tokens,
+    }
+
+
+def is_text(value):
+    return isinstance(value, str) and bool(value.strip())
+
+
+# Every request
+def handler(event, context):
+    raw = event.get("body") or "{}"
+    if event.get("isBase64Encoded"):
+        raw = base64.b64decode(raw).decode()
+    try:
+        body = json.loads(raw)
+    except json.JSONDecodeError:
+        body = None
+    if not isinstance(body, dict):
+        return response(400, {"error": "send a JSON object"})
+
+    if event.get("routeKey", "").endswith("/predict/batch"):
+        texts = body.get("texts")
+        if (
+            not isinstance(texts, list)
+            or not 1 <= len(texts) <= MAX_BATCH
+            or not all(is_text(t) for t in texts)
+        ):
+            return response(
+                400,
+                {"error": f"send a JSON with 'texts': a list of 1 to {MAX_BATCH} non-empty strings"},
+            )
+        # One ONNX run per text, not one padded batch: with dynamic int8
+        # quantization the activation scale is computed over the whole input
+        # tensor, so batching would make each result depend on its neighbours
+        return response(200, {"results": [analyze(t) for t in texts]})
+
+    text = body.get("text")
+    if not is_text(text):
+        return response(400, {"error": "send a JSON with a non-empty string field 'text'"})
+    return response(200, analyze(text))

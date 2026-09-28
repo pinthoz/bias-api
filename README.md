@@ -7,22 +7,26 @@ A serverless API for **token-level social-bias detection**. It serves
 sentence, the API returns the words that carry bias and the type of bias:
 **generalisation (GEN)**, **unfair language (UNFAIR)** or **stereotype (STEREO)**.
 
-The model runs as an int8-quantized ONNX graph inside an AWS Lambda container
-image, behind an API Gateway HTTP API. All the infrastructure is defined in
-Terraform.
+The model runs as an int8-quantized ONNX graph inside an arm64 (Graviton) AWS
+Lambda container image, behind an API Gateway HTTP API protected by an API key.
+All the infrastructure is defined in Terraform and deployed by GitHub Actions.
 
 ```
-client ──POST /predict──► API Gateway (HTTP API, throttled) ──► Lambda (container image)
-                                                                  ├─ tokenizers (tokenizer.json)
-                                                                  └─ onnxruntime (model.int8.onnx)
+client ──POST /predict──────► API Gateway (HTTP API, throttled) ──► Lambda (container image, arm64)
+         POST /predict/batch        │                                ├─ tokenizers (tokenizer.json)
+         x-api-key: …               ▼                                └─ onnxruntime (model.int8.onnx)
+                              Lambda authorizer ── SSM Parameter Store (API key)
 ```
 
 ## API
 
+Every request needs the `x-api-key` header. Requests without it get `401`, and
+requests with a wrong key get `403`.
+
 `POST /predict` takes a JSON body with a `text` field:
 
 ```bash
-curl -s -X POST "$API_URL" -H "Content-Type: application/json" \
+curl -s -X POST "$API_URL" -H "x-api-key: $API_KEY" -H "Content-Type: application/json" \
   -d '{"text": "Women are bad at math."}'
 ```
 
@@ -61,6 +65,23 @@ Response (abridged):
 
 A missing, empty or non-string `text` returns `400`.
 
+### Batch
+
+`POST /predict/batch` takes up to 32 texts and returns one result per text, in
+the same order and with the same shape as `/predict`:
+
+```bash
+curl -s -X POST "$API_URL/batch" -H "x-api-key: $API_KEY" -H "Content-Type: application/json" \
+  -d '{"texts": ["Women are bad at math.", "The meeting is at noon."]}'
+# {"results": [{"biased": true, ...}, {"biased": false, ...}]}
+```
+
+The texts are run through the model one at a time, not as one padded batch.
+With dynamic int8 quantization, the activation scale is computed over the whole
+input tensor, so padding sentences together changes each one's probabilities
+(by up to 0.06 in a quick test, against exactly 0 for fp32). Running them
+separately keeps every batch result identical to the single-text endpoint.
+
 ### How a label fires
 
 GUS-Net is **multi-label**: every token gets an independent sigmoid probability
@@ -84,8 +105,16 @@ export/                  offline tooling (run once, from the repo root)
   export_onnx.py         Hugging Face checkpoint → model.onnx (+ parity check)
   quantize_compare.py    model.onnx → model.int8.onnx, fp32 vs int8 comparison
   retune_thresholds.py   re-tunes the per-label thresholds for int8
-  *_results.json         results of the two scripts above
-infra/                   Terraform: ECR, Lambda, IAM, API Gateway, CloudWatch
+  parity_check.py        deployed API (Graviton) vs local run of the same model
+  *_results.json         results of the scripts above
+infra/                   Terraform (state in S3)
+  main.tf                ECR, Lambda, API Gateway routes and stage
+  auth.tf                API key in SSM + Lambda authorizer
+  alarms.tf              5xx-rate alarm → SNS → email
+  authorizer/            authorizer source code
+  bootstrap/             one-time setup: state bucket, GitHub OIDC deploy role
+.github/workflows/
+  deploy.yml             push to main → build arm64 image → terraform apply → smoke test
 ```
 
 ## Rebuilding the model artifacts
@@ -146,60 +175,87 @@ The deployed model uses per-tensor quantization.
 Lambda container images are loaded lazily, and the init phase gets 10 s before
 it is retried inside the invocation. API Gateway HTTP APIs time out at 30 s.
 
-| Memory | Model | Cold start | First request | Max memory used |
-|---|---|---|---|---|
-| 2048 MB | fp32 (416 MB) | > 40 s | 503 | – (never finished loading) |
-| 3008 MB | fp32 (416 MB) | ~33.4 s (10 s timeout + 23.4 s) | 503 | 1132 MB |
-| 3008 MB | int8 (105 MB) | ~13.5 s (10 s timeout + 3.5 s) | **200** | 347 MB |
+| Arch | Memory | Model | Cold start | First request | Max memory used |
+|---|---|---|---|---|---|
+| x86_64 | 2048 MB | fp32 (416 MB) | > 40 s | 503 | – (never finished loading) |
+| x86_64 | 3008 MB | fp32 (416 MB) | ~33.4 s (10 s timeout + 23.4 s) | 503 | 1132 MB |
+| x86_64 | 3008 MB | int8 (105 MB) | ~13.5 s (10 s timeout + 3.5 s) | **200** | 347 MB |
 
-A warm request takes about 40 ms. The model's output on AWS matched the local
-ONNX run to the last reported decimal.
+A warm request takes about 40 ms. On x86_64, the model's output on AWS matched
+the local ONNX run to the last reported decimal. The function now runs on arm64
+(Graviton), where onnxruntime uses different int8 kernels;
+[export/parity_check.py](export/parity_check.py) measures how far its output
+drifts from the local x86 run.
 
 ## Deploying
 
-Requirements: an AWS account, the AWS CLI with credentials, Docker and
-Terraform ≥ 1.6. The region defaults to `eu-west-1`
-([infra/variables.tf](infra/variables.tf)).
+Deploys run in GitHub Actions ([.github/workflows/deploy.yml](.github/workflows/deploy.yml)):
+every push to `main` builds the arm64 image on a native arm64 runner, pushes it
+to ECR tagged with the commit SHA, runs `terraform apply`, and smoke-tests the
+live API (`200` with the key, `401` without). AWS access is keyless: the
+workflow exchanges a GitHub OIDC token for short-lived credentials of a role
+that only trusts the `main` branch of this repository.
+
+### One-time setup
+
+Requirements: an AWS account, the AWS CLI with admin credentials, and
+Terraform ≥ 1.10. The region is `eu-west-1`.
 
 ```bash
-# 1. Create the ECR repository first (the Lambda needs an image to exist)
-cd infra
+# 1. State bucket + GitHub OIDC provider + deploy role (local state)
+cd infra/bootstrap
 terraform init
-terraform apply -target=aws_ecr_repository.api -target=aws_ecr_lifecycle_policy.api
-REPO=$(terraform output -raw ecr_url)
-
-# 2. Build, test locally and push the image
-cd ../app
-docker build --platform linux/amd64 --provenance=false -t "$REPO:v3" .
-docker run --rm -p 9000:8080 "$REPO:v3"   # in another terminal:
-curl -s -X POST "http://localhost:9000/2015-03-31/functions/function/invocations" \
-  -d '{"body": "{\"text\": \"Women are bad at math.\"}"}'
-aws ecr get-login-password --region eu-west-1 \
-  | docker login --username AWS --password-stdin "${REPO%/*}"
-docker push "$REPO:v3"
-
-# 3. Create the rest (image_tag in variables.tf must match the pushed tag)
-cd ../infra
 terraform apply
-curl -s -X POST "$(terraform output -raw api_url)" \
-  -H "Content-Type: application/json" -d '{"text": "Women are bad at math."}'
+
+# 2. The model is not in git: upload it where CI fetches it
+aws s3 cp ../../app/model/model.int8.onnx "s3://$(terraform output -raw bucket)/model/model.int8.onnx"
 ```
 
-`--platform linux/amd64` builds for Lambda's x86 architecture, and
-`--provenance=false` avoids a multi-platform manifest that Lambda rejects.
-To release a new version, push a new tag, update `image_tag` and run
-`terraform apply`. The plan should show only `image_uri` changing.
+3. In the GitHub repository (Settings → Secrets and variables → Actions), add
+   the variables `AWS_ROLE_ARN` (`terraform output -raw deploy_role_arn`) and
+   `STATE_BUCKET` (`terraform output -raw bucket`), and the secret `ALERT_EMAIL`.
+4. Push to `main`. After the first deploy, confirm the SNS subscription from the
+   email AWS sends, or the alarm cannot reach you.
 
-`terraform destroy` removes everything, including the images
-(`force_delete = true` on the repository).
+The API key is generated by Terraform and stored in SSM Parameter Store:
+
+```bash
+cd infra
+terraform init
+terraform output -raw api_key
+```
+
+### Running Terraform locally
+
+`image_tag` and `alert_email` have no defaults. Pass the tag that is currently
+deployed (the last commit SHA that CI pushed), or the plan will try to change the
+image:
+
+```bash
+terraform plan -var image_tag=<commit sha> -var alert_email=<email>
+```
+
+`terraform destroy` removes everything except the bootstrap resources, including
+the images (`force_delete = true` on the repository). The state bucket has
+`prevent_destroy` set.
 
 ### Security and cost notes
 
-- The endpoint is **public** (`authorization_type = "NONE"`). It is throttled
-  to 2 requests/s with bursts of 5, which caps the cost of abuse.
-- The Lambda's execution role only allows writing logs
-  (`AWSLambdaBasicExecutionRole`). API Gateway may invoke the function only from
-  this API (`aws_lambda_permission` with `source_arn`).
+- Every route requires the `x-api-key` header. HTTP APIs have no native API
+  keys, so a small Lambda authorizer compares the header with a key stored as an
+  SSM SecureString, using a constant-time comparison. Decisions are cached for
+  5 minutes per key. To rotate the key, run `terraform apply -replace=random_password.api_key`.
+- The stage is throttled to 2 requests/s with bursts of 5, which caps the cost
+  of abuse even with a leaked key.
+- Each role gets the minimum: the model Lambda can only write logs, the
+  authorizer can also read that one parameter, and API Gateway may invoke each
+  function only from this API (`aws_lambda_permission` with `source_arn`). The
+  CI role's permissions are scoped to this project's resources, but it can edit
+  the `bias-api-*` roles, so anyone able to push to `main` effectively controls
+  this project's AWS resources.
+- A CloudWatch alarm emails the `ALERT_EMAIL` address when more than 5 % of
+  requests in a 5-minute window return 5xx. With little traffic, a single cold-start
+  503 can trip it.
 - Logs are kept for 7 days. ECR keeps the 3 most recent images. Images are scanned
   on push (basic scanning covers OS packages only, not Python dependencies).
 - New AWS accounts cap Lambda memory at 3008 MB until a quota increase is granted.
