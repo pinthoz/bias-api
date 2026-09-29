@@ -1,4 +1,6 @@
 {
+  "machine": "x86_64",
+  "onnxruntime": "1.23.2",
   "split": {
     "sentences": 3739,
     "val": 300,
@@ -24,13 +26,13 @@
       0.363
     ],
     "int8": [
-      0.4132,
-      0.3736,
-      0.3677,
-      0.3578,
-      0.3706,
-      0.3,
-      0.3605
+      0.4076,
+      0.4042,
+      0.3561,
+      0.3631,
+      0.3597,
+      0.3393,
+      0.3361
     ]
   },
   "test": {
@@ -58,46 +60,46 @@
     },
     "int8 + published thresholds": {
       "GEN": {
-        "precision": 0.7927,
-        "recall": 0.6938,
-        "f1": 0.74
+        "precision": 0.7887,
+        "recall": 0.6898,
+        "f1": 0.7359
       },
       "UNFAIR": {
-        "precision": 0.4249,
-        "recall": 0.4232,
-        "f1": 0.4241
+        "precision": 0.4472,
+        "recall": 0.4547,
+        "f1": 0.4509
       },
       "STEREO": {
-        "precision": 0.7935,
-        "recall": 0.635,
-        "f1": 0.7054
+        "precision": 0.7906,
+        "recall": 0.6333,
+        "f1": 0.7032
       },
       "micro": {
-        "precision": 0.6337,
-        "recall": 0.6057,
-        "f1": 0.6194
+        "precision": 0.6322,
+        "recall": 0.6064,
+        "f1": 0.619
       }
     },
-    "int8 + int8 thresholds": {
+    "int8 + re-tuned thresholds": {
       "GEN": {
-        "precision": 0.8084,
-        "recall": 0.6644,
-        "f1": 0.7294
+        "precision": 0.8132,
+        "recall": 0.6678,
+        "f1": 0.7333
       },
       "UNFAIR": {
-        "precision": 0.3996,
-        "recall": 0.4779,
-        "f1": 0.4353
+        "precision": 0.3847,
+        "recall": 0.4884,
+        "f1": 0.4304
       },
       "STEREO": {
-        "precision": 0.7579,
-        "recall": 0.7069,
-        "f1": 0.7315
+        "precision": 0.7512,
+        "recall": 0.7161,
+        "f1": 0.7333
       },
       "micro": {
-        "precision": 0.6085,
-        "recall": 0.6372,
-        "f1": 0.6225
+        "precision": 0.6064,
+        "recall": 0.6445,
+        "f1": 0.6249
       }
     }
   }

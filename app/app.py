@@ -127,8 +127,34 @@ def is_text(value):
     return isinstance(value, str) and bool(value.strip())
 
 
+def raw_probs(event):
+    """Sigmoid probabilities for pre-tokenized input, for threshold tuning.
+
+    int8 outputs depend on the CPU's int8 kernels, so thresholds must be tuned
+    on the hardware that serves the model (export/retune_thresholds.py with
+    ARCH=lambda). Each sequence runs alone and unpadded, exactly like a
+    /predict request. Returns one [seq, labels] list per sequence.
+    """
+    probs = []
+    for ids in event["eval_inputs"]:
+        ids = np.array([ids], dtype=np.int64)
+        feeds = {
+            "input_ids": ids,
+            "attention_mask": np.ones_like(ids),
+            "token_type_ids": np.zeros_like(ids),
+        }
+        out = session.run(None, {k: v for k, v in feeds.items() if k in INPUTS})[0][0]
+        probs.append(np.round(sigmoid(out), 5).tolist())
+    return {"probs": probs}
+
+
 # Every request
 def handler(event, context):
+    # Direct `aws lambda invoke` only (needs IAM rights on the function):
+    # API Gateway events always carry a requestContext
+    if "eval_inputs" in event and "requestContext" not in event:
+        return raw_probs(event)
+
     raw = event.get("body") or "{}"
     if event.get("isBase64Encoded"):
         raw = base64.b64decode(raw).decode()
