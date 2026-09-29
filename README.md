@@ -9,13 +9,18 @@ sentence, the API returns the words that carry bias and the type of bias:
 
 The model runs as an int8-quantized ONNX graph inside an arm64 (Graviton) AWS
 Lambda container image, behind an API Gateway HTTP API protected by an API key.
-All the infrastructure is defined in Terraform and deployed by GitHub Actions.
+A Next.js website on CloudFront shows the sentence with the biased words
+underlined by category. All the infrastructure is defined in Terraform and
+deployed by GitHub Actions on every push to `main`.
 
 ```
-client ──POST /predict──────► API Gateway (HTTP API, throttled) ──► Lambda (container image, arm64)
-         POST /predict/batch        │                                ├─ tokenizers (tokenizer.json)
-         x-api-key: …               ▼                                └─ onnxruntime (model.int8.onnx)
-                              Lambda authorizer ── SSM Parameter Store (API key)
+browser ──► CloudFront ──/*────────► S3 (static Next.js site)
+                │
+                └──/predict*──┐
+client ───────────────────────┴─► API Gateway (HTTP API, throttled) ──► Lambda (container image, arm64)
+   POST /predict, /predict/batch          │                              ├─ tokenizers (tokenizer.json)
+   x-api-key: …                           ▼                              └─ onnxruntime (model.int8.onnx)
+                                  Lambda authorizer ── SSM Parameter Store (API key)
 ```
 
 ## API
@@ -38,17 +43,17 @@ Response (abridged):
   "categories": ["GEN", "STEREO", "UNFAIR"],
   "biased_tokens": ["Women", "are", "bad", "at", "math"],
   "spans": [
-    {"category": "GEN",    "start": 0,  "end": 5,  "score": 0.6151, "text": "Women"},
-    {"category": "UNFAIR", "start": 0,  "end": 5,  "score": 0.3961, "text": "Women"},
-    {"category": "STEREO", "start": 0,  "end": 21, "score": 0.6276, "text": "Women are bad at math"},
-    {"category": "UNFAIR", "start": 10, "end": 21, "score": 0.474,  "text": "bad at math"}
+    {"category": "GEN",    "start": 0,  "end": 5,  "score": 0.549,  "text": "Women"},
+    {"category": "UNFAIR", "start": 0,  "end": 5,  "score": 0.3393, "text": "Women"},
+    {"category": "STEREO", "start": 0,  "end": 21, "score": 0.5387, "text": "Women are bad at math"},
+    {"category": "UNFAIR", "start": 10, "end": 21, "score": 0.4033, "text": "bad at math"}
   ],
   "tokens": [
     {"token": "Women", "start": 0, "end": 5,
      "labels": ["B-GEN", "B-UNFAIR", "B-STEREO"], "categories": ["GEN", "STEREO", "UNFAIR"],
-     "scores": {"B-GEN": 0.6151, "B-UNFAIR": 0.3961, "B-STEREO": 0.6276}},
+     "scores": {"B-GEN": 0.549, "B-UNFAIR": 0.3393, "B-STEREO": 0.5387}},
     {"token": "are", "start": 6, "end": 9,
-     "labels": ["I-STEREO"], "categories": ["STEREO"], "scores": {"I-STEREO": 0.457}},
+     "labels": ["I-STEREO"], "categories": ["STEREO"], "scores": {"I-STEREO": 0.3858}},
     ...
     {"token": ".", "start": 21, "end": 22, "labels": [], "categories": [], "scores": {}}
   ]
@@ -106,7 +111,7 @@ export/                  offline tooling (run once, from the repo root)
   quantize_compare.py    model.onnx → model.int8.onnx, fp32 vs int8 comparison
   retune_thresholds.py   re-tunes the per-label thresholds for int8
   parity_check.py        deployed API (Graviton) vs local run of the same model
-  *_results.json         results of the scripts above
+  *results*.json         results of the scripts above (.arm64 = measured on the Lambda)
 infra/                   Terraform (state in S3)
   main.tf                ECR, Lambda, API Gateway routes and stage
   auth.tf                API key in SSM + Lambda authorizer
@@ -114,15 +119,23 @@ infra/                   Terraform (state in S3)
   frontend.tf            private S3 bucket + CloudFront for the website, proxying /predict to the API
   authorizer/            authorizer source code
   bootstrap/             one-time setup: state bucket, GitHub OIDC deploy role
-frontend/                Next.js static site: the sentence with flagged words underlined by category
+frontend/                Next.js static site (see frontend/README.md)
 .github/workflows/
   deploy.yml             push to main → build arm64 image → terraform apply → smoke test → publish site
 ```
 
-The website also needs the API key: the visitor pastes it into the page, which
-keeps it only in that browser (localStorage) and sends it as `x-api-key`. The
-site calls `/predict` on its own CloudFront domain, and CloudFront forwards
-that path, with the header, to API Gateway, so no CORS is involved.
+## Website
+
+The site ([frontend/](frontend/)) shows the analysed sentence with each flagged
+word underlined in its category's colour (hover a word for its label scores),
+the flagged spans with their scores, and the last few sentences analysed.
+
+It needs the API key too: the visitor pastes it into the page, which keeps it
+only in that browser (localStorage) and sends it as `x-api-key`. The site calls
+`/predict` on its own CloudFront domain, and CloudFront forwards that path, with
+the header, to API Gateway, so no CORS is involved. A wrong key reaches the
+browser as `404` rather than `403`: CloudFront turns every `403` into the site's
+404 page, a rule meant for missing files in the private S3 bucket.
 
 ## Rebuilding the model artifacts
 
@@ -142,7 +155,13 @@ python export/quantize_compare.py
 #    Needs the cleaned GUS-Net corpus from the Attention Atlas repo, checked
 #    out next to this one (../attention-atlas/dataset/old-datasets/).
 python export/retune_thresholds.py                 # on this machine (x86)
-TARGET=lambda python export/retune_thresholds.py   # on the deployed Lambda (what is served)
+
+# 4. CI fetches the model from S3 and checks it against the committed checksum
+cd app/model && sha256sum model.int8.onnx > model.int8.onnx.sha256 && cd ../..
+aws s3 cp app/model/model.int8.onnx s3://pinthoz-bias-api-infra/model/model.int8.onnx
+
+# 5. After CI deployed the new model: tune on the Lambda itself, commit, push
+TARGET=lambda python export/retune_thresholds.py   # writes thresholds.int8.arm64.json
 ```
 
 ## Quantization and threshold re-tuning
@@ -205,17 +224,24 @@ it is retried inside the invocation. API Gateway HTTP APIs time out at 30 s.
 | x86_64 | 2048 MB | fp32 (416 MB) | > 40 s | 503 | – (never finished loading) |
 | x86_64 | 3008 MB | fp32 (416 MB) | ~33.4 s (10 s timeout + 23.4 s) | 503 | 1132 MB |
 | x86_64 | 3008 MB | int8 (105 MB) | ~13.5 s (10 s timeout + 3.5 s) | **200** | 347 MB |
+| arm64 | 3008 MB | int8 (105 MB) | **1.2–2.3 s** (4 cold starts); 6.8 s and once > 10 s right after a new image | **200** | 343–355 MB |
 
-A warm request takes about 40 ms. On x86_64, the model's output on AWS matched
-the local ONNX run to the last reported decimal. The function now runs on arm64
-(Graviton), which is about 20 % cheaper per GB-second.
+The slow cold starts come right after a deploy, while the new image is not yet
+in Lambda's cache; later ones load the model in about 2 s, well inside the
+10 s init window. Once loaded, a request takes about 40 ms on x86_64 and about
+15 ms on arm64 (the duration Lambda reports, network excluded). On x86_64,
+the model's output on AWS matched the local ONNX run to the last reported
+decimal. The function now runs on arm64 (Graviton), which is about 20 % cheaper
+per GB-second and, as measured here, starts faster.
 
 ## Deploying
 
 Deploys run in GitHub Actions ([.github/workflows/deploy.yml](.github/workflows/deploy.yml)):
 every push to `main` builds the arm64 image on a native arm64 runner, pushes it
 to ECR tagged with the commit SHA, runs `terraform apply`, and smoke-tests the
-live API (`200` with the key, `401` without). AWS access is keyless: the
+live API (`200` with the key, `401` without). A last job builds the website,
+uploads it to S3, invalidates CloudFront and runs the same two checks through
+the site's `/predict`. AWS access is keyless: the
 workflow exchanges a GitHub OIDC token for short-lived credentials of a role
 that only trusts the `main` branch of this repository.
 
@@ -274,8 +300,9 @@ the images (`force_delete = true` on the repository). The state bucket has
   authorizer can also read that one parameter, and API Gateway may invoke each
   function only from this API (`aws_lambda_permission` with `source_arn`). The
   CI role's permissions are scoped to this project's resources, but it can edit
-  the `bias-api-*` roles, so anyone able to push to `main` effectively controls
-  this project's AWS resources.
+  the `bias-api-*` roles and, because CloudFront ARNs carry random ids rather
+  than names, any CloudFront distribution in the account. Anyone able to push to
+  `main` effectively controls this project's AWS resources.
 - A CloudWatch alarm emails the `ALERT_EMAIL` address when more than 5 % of
   requests in a 5-minute window return 5xx. With little traffic, a single cold-start
   503 can trip it.
