@@ -122,128 +122,143 @@ export default function Home() {
   const latest = history[0];
 
   return (
-    <main className="mx-auto w-full max-w-2xl px-4 py-12 sm:py-16">
-      <header className="mb-8">
-        <h1 className="text-3xl font-semibold tracking-tight">Bias Detector</h1>
-        <p className="mt-2 text-muted">
-          Type a sentence and a fine-tuned BERT model (GUS-Net) marks the words that carry social
-          bias, and what kind of bias it is.
-        </p>
+    <main className="mx-auto w-full max-w-6xl px-4 py-8 lg:py-10">
+      <header className="mb-6 flex items-center gap-3">
+        {/* eslint-disable-next-line @next/next/no-img-element -- static export, no image optimiser */}
+        <img src="/logo.svg" alt="" width={44} height={44} className="shrink-0 rounded-[10px]" />
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Bias Detector</h1>
+          <p className="text-sm text-muted">
+            A fine-tuned BERT model (GUS-Net) marks the words that carry social bias, and what kind
+            of bias it is.
+          </p>
+        </div>
       </header>
 
-      <section className="rounded-xl border border-line bg-card p-5 shadow-sm">
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          <label htmlFor="api-key" className="text-sm font-semibold">
-            API key
+      {/* Two columns on a monitor (input | result), one column on narrow screens */}
+      <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
+        <section className="rounded-xl border border-line bg-card p-5 shadow-sm">
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <label htmlFor="api-key" className="text-sm font-semibold">
+              API key
+            </label>
+            <input
+              id="api-key"
+              type="password"
+              autoComplete="off"
+              value={apiKey}
+              onChange={(e) => updateKey(e.target.value)}
+              placeholder="Paste your key"
+              className="min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 py-1.5 font-mono text-sm outline-none focus:ring-2 focus:ring-accent"
+            />
+            {apiKey && (
+              <button
+                onClick={() => updateKey("")}
+                className="rounded-lg border border-line px-3 py-1.5 text-sm transition hover:bg-bg"
+              >
+                Forget
+              </button>
+            )}
+            <p className="w-full text-xs text-muted">Kept only in this browser.</p>
+          </div>
+
+          <label htmlFor="text" className="sr-only">
+            Text to analyse
           </label>
-          <input
-            id="api-key"
-            type="password"
-            autoComplete="off"
-            value={apiKey}
-            onChange={(e) => updateKey(e.target.value)}
-            placeholder="Paste your key"
-            className="min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 py-1.5 font-mono text-sm outline-none focus:ring-2 focus:ring-accent"
-          />
-          {apiKey && (
-            <button
-              onClick={() => updateKey("")}
-              className="rounded-lg border border-line px-3 py-1.5 text-sm transition hover:bg-bg"
-            >
-              Forget
-            </button>
-          )}
-          <p className="w-full text-xs text-muted">Kept only in this browser.</p>
-        </div>
-
-        <label htmlFor="text" className="sr-only">
-          Text to analyse
-        </label>
-        <textarea
-          id="text"
-          value={text}
-          maxLength={MAX_CHARS}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) analyse();
-          }}
-          placeholder="Type or paste an English sentence…"
-          className="min-h-32 w-full resize-y rounded-lg border border-line bg-bg p-3 outline-none focus:ring-2 focus:ring-accent"
-        />
-
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <button
-            onClick={() => analyse()}
-            disabled={loading || !text.trim() || !apiKey.trim()}
-            className="rounded-lg bg-accent px-4 py-2 font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {loading ? "Analysing…" : "Analyse"}
-          </button>
-          <button
-            onClick={() => {
-              setText("");
-              setError(null);
+          <textarea
+            id="text"
+            value={text}
+            maxLength={MAX_CHARS}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) analyse();
             }}
-            className="rounded-lg border border-line px-4 py-2 transition hover:bg-bg"
-          >
-            Clear
-          </button>
-          <span className="ml-auto text-sm text-muted">
-            {text.length} / {MAX_CHARS} · Ctrl+Enter
-          </span>
-        </div>
+            placeholder="Type or paste an English sentence…"
+            className="min-h-32 w-full resize-y rounded-lg border border-line bg-bg p-3 outline-none focus:ring-2 focus:ring-accent"
+          />
 
-        <div className="mt-4 flex flex-wrap items-center gap-2 text-sm text-muted">
-          <span>Try:</span>
-          {EXAMPLES.map((ex) => (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
             <button
-              key={ex}
-              onClick={() => {
-                setText(ex);
-                analyse(ex);
-              }}
-              className="rounded-full border border-line px-3 py-1 transition hover:border-accent hover:text-ink"
+              onClick={() => analyse()}
+              disabled={loading || !text.trim() || !apiKey.trim()}
+              className="rounded-lg bg-accent px-4 py-2 font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {ex}
+              {loading ? "Analysing…" : "Analyse"}
             </button>
-          ))}
-        </div>
+            <button
+              onClick={() => {
+                setText("");
+                setError(null);
+              }}
+              className="rounded-lg border border-line px-4 py-2 transition hover:bg-bg"
+            >
+              Clear
+            </button>
+            <span className="ml-auto text-sm text-muted">
+              {text.length} / {MAX_CHARS} · Ctrl+Enter
+            </span>
+          </div>
 
-        {error && (
-          <p role="alert" className="mt-5 rounded-lg border border-warn/40 bg-warn/10 p-3 text-sm text-warn">
-            {error}
-          </p>
-        )}
-
-        {latest && !error && <Result prediction={latest} />}
-      </section>
-
-      {history.length > 1 && (
-        <section className="mt-8">
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted">Recent</h2>
-          <ul className="divide-y divide-line rounded-xl border border-line bg-card">
-            {history.slice(1).map((p, i) => (
-              <li key={i} className="flex items-center gap-3 px-4 py-3 text-sm">
-                <span className="flex shrink-0 gap-1" aria-hidden>
-                  {p.result.categories.length ? (
-                    p.result.categories.map((c) => (
-                      <span key={c} className="h-2 w-2 rounded-full" style={{ background: COLOR[c] }} />
-                    ))
-                  ) : (
-                    <span className="h-2 w-2 rounded-full bg-ok" />
-                  )}
-                </span>
-                <span className="truncate">{p.text}</span>
-                <span className="ml-auto shrink-0 font-mono text-xs text-muted">
-                  {p.result.categories.join(" · ") || "no bias"} · {p.ms} ms
-                </span>
-              </li>
+          <div className="mt-4 flex flex-wrap items-center gap-2 text-sm text-muted">
+            <span>Try:</span>
+            {EXAMPLES.map((ex) => (
+              <button
+                key={ex}
+                onClick={() => {
+                  setText(ex);
+                  analyse(ex);
+                }}
+                className="rounded-full border border-line px-3 py-1 transition hover:border-accent hover:text-ink"
+              >
+                {ex}
+              </button>
             ))}
-          </ul>
-        </section>
-      )}
+          </div>
 
-      <footer className="mt-12 text-center text-xs text-muted">
+          {error && (
+            <p role="alert" className="mt-5 rounded-lg border border-warn/40 bg-warn/10 p-3 text-sm text-warn">
+              {error}
+            </p>
+          )}
+        </section>
+
+        <section className="rounded-xl border border-line bg-card p-5 shadow-sm">
+          {latest ? (
+            <Result prediction={latest} />
+          ) : (
+            <p className="py-10 text-center text-sm text-muted">
+              The analysed sentence appears here, with the biased words underlined.
+            </p>
+          )}
+
+          {history.length > 1 && (
+            <div className="mt-6 border-t border-line pt-4">
+              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Recent</h2>
+              <ul className="divide-y divide-line">
+                {history.slice(1).map((p, i) => (
+                  <li key={i} className="flex items-center gap-3 py-2 text-sm">
+                    <span className="flex shrink-0 gap-1" aria-hidden>
+                      {p.result.categories.length ? (
+                        p.result.categories.map((c) => (
+                          <span key={c} className="h-2 w-2 rounded-full" style={{ background: COLOR[c] }} />
+                        ))
+                      ) : (
+                        <span className="h-2 w-2 rounded-full bg-ok" />
+                      )}
+                    </span>
+                    <span className="truncate">{p.text}</span>
+                    <span className="ml-auto shrink-0 font-mono text-xs text-muted">
+                      {p.result.categories.join(" · ") || "no bias"} · {p.ms} ms
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+      </div>
+
+      <footer className="mt-8 text-center text-xs text-muted">
         GUS-Net BERT → ONNX int8 → AWS Lambda (arm64) · API Gateway · S3 + CloudFront · Terraform
       </footer>
     </main>
@@ -255,7 +270,7 @@ function Result({ prediction }: { prediction: Prediction }) {
   const cold = ms > COLD_START_MS;
 
   return (
-    <div className="mt-6" aria-live="polite">
+    <div aria-live="polite">
       <p className={`text-xl font-bold ${result.biased ? "text-warn" : "text-ok"}`}>
         {result.biased ? "Bias detected" : "No bias detected"}
       </p>
