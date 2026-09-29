@@ -45,7 +45,7 @@ api = []
 for b in range(0, len(texts), BATCH):
     api += remote(texts[b:b + BATCH])
     time.sleep(0.6)  # stay under the stage throttle (2 req/s)
-local = [app.analyze(t) for t in texts]
+local = [app.analyze(t)[0] for t in texts]  # (result, n_tokens)
 
 same_sentences = sum(a == b for a, b in zip(api, local))
 label_diffs = score_diffs = n_tokens = verdict_flips = 0

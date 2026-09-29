@@ -65,6 +65,7 @@ Response (abridged):
 | `biased` | `true` if any word was flagged. |
 | `categories` | Bias categories found in the sentence. |
 | `biased_tokens` | The flagged words, as they appear in the input. |
+| `p_biased` | The highest bias-label probability on any token, before thresholds: a sentence-level score used for monitoring. |
 | `spans` | Consecutive words flagged with the same category, merged into one span. `start`/`end` are character offsets into `text`; `score` is the highest probability in the span. |
 | `tokens` | Every word of the input in order, with the BIO labels that fired, their categories and probabilities. Neutral words have empty lists, so a client can render the whole sentence with highlights. |
 
@@ -97,6 +98,32 @@ optimised for F1 on the validation split (see
 categories at once. BERT subword pieces are merged back into whole words, and a
 word takes the maximum probability of its pieces.
 
+### Monitoring counters
+
+Every analysed text increments counters in the DynamoDB table
+`bias-api-metrics` ([infra/dynamodb.tf](infra/dynamodb.tf)), one item per
+source (`AGG#api`, or `AGG#canary` for requests sent with `x-source: canary`)
+and per interval (`BUCKET_MINUTES`, 60 by default), kept for 90 days:
+
+| Attribute | Counts |
+|---|---|
+| `n`, `pos` | Texts analysed, and texts with at least one flagged span |
+| `tag_GEN`, `tag_UNFAIR`, `tag_STEREO` | Texts with a span of that category |
+| `grp_<group>_n`, `grp_<group>_pos` | Texts mentioning a group (gender, race, religion, age, lgbtq, by keyword), and how many of them were flagged |
+| `p_bin_*`, `tok_bin_*`, `lat_bin_*` | Histograms of `p_biased`, input length in tokens and latency |
+
+No text is stored, only counts. They are meant for drift and fairness
+monitoring: a shift in the `p_biased` histogram, or in the flag rate of one
+group against the others. Example query:
+
+```bash
+aws dynamodb query --table-name bias-api-metrics --region eu-west-1 \
+  --key-condition-expression "pk = :pk" \
+  --expression-attribute-values '{":pk": {"S": "AGG#api"}}' \
+  --query "Items[].{bucket: sk.S, texts: n.N, flagged: pos.N, gender_texts: grp_gender_n.N, gender_flagged: grp_gender_pos.N}" \
+  --output table
+```
+
 ## Repository layout
 
 ```
@@ -116,6 +143,7 @@ infra/                   Terraform (state in S3)
   main.tf                ECR, Lambda, API Gateway routes and stage
   auth.tf                API key in SSM + Lambda authorizer
   alarms.tf              5xx-rate alarm → SNS → email
+  dynamodb.tf            monitoring counters table + the Lambda's write permission
   frontend.tf            private S3 bucket + CloudFront for the website, proxying /predict to the API
   authorizer/            authorizer source code
   bootstrap/             one-time setup: state bucket, GitHub OIDC deploy role
