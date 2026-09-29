@@ -36,8 +36,11 @@ variable "bucket" {
   default = "pinthoz-bias-api-infra"
 }
 
+# GitHub puts the immutable numeric IDs of the owner and the repository in the
+# OIDC subject ("repo:owner@<id>/repo@<id>:..."), so a repository re-created
+# under the same name, or a renamed account's old name, cannot match
 variable "github_repo" {
-  default = "pinthoz/bias-api"
+  default = "pinthoz@69254873/bias-api@1393644182"
 }
 
 data "aws_caller_identity" "current" {}
