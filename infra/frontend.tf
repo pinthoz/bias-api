@@ -25,15 +25,15 @@ data "aws_cloudfront_cache_policy" "optimized" {
   name = "Managed-CachingOptimized"
 }
 
-# The site calls /predict on its own domain. CloudFront forwards those
-# requests to API Gateway and adds the API key itself, so the key never
-# reaches the browser and there is no cross-origin request (no CORS).
+# The site calls /predict on its own domain and CloudFront forwards those
+# requests to API Gateway, so there is no cross-origin request (no CORS).
+# The visitor's own x-api-key header goes along: the site needs a key too.
 data "aws_cloudfront_cache_policy" "disabled" {
   name = "Managed-CachingDisabled"
 }
 
-# Everything the viewer sent (body, content-type, origin) except Host:
-# API Gateway only answers to its own hostname
+# Everything the viewer sent (body, content-type, x-api-key, origin) except
+# Host: API Gateway only answers to its own hostname
 data "aws_cloudfront_origin_request_policy" "all_but_host" {
   name = "Managed-AllViewerExceptHostHeader"
 }
@@ -59,14 +59,6 @@ resource "aws_cloudfront_distribution" "site" {
       origin_protocol_policy = "https-only"
       origin_ssl_protocols   = ["TLSv1.2"]
     }
-
-    # Overwrites any x-api-key a viewer sends. Anyone can still use the API
-    # through the site, within the stage throttle; calling API Gateway
-    # directly still needs the key
-    custom_header {
-      name  = "x-api-key"
-      value = random_password.api_key.result
-    }
   }
 
   # /predict and /predict/batch → API Gateway, never cached
@@ -88,7 +80,9 @@ resource "aws_cloudfront_distribution" "site" {
     cache_policy_id        = data.aws_cloudfront_cache_policy.optimized.id
   }
 
-  # Private bucket returns 403 for non-existent files: shows Next's 404 page
+  # Private bucket returns 403 for non-existent files: shows Next's 404 page.
+  # This applies to every origin, so a wrong API key (403 from API Gateway)
+  # also reaches the browser as a 404; the site treats both the same
   custom_error_response {
     error_code         = 403
     response_code      = 404

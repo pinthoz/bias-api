@@ -115,7 +115,7 @@ resource "aws_apigatewayv2_api" "http" {
   cors_configuration {
     allow_origins = ["http://localhost:3000"]
     allow_methods = ["POST", "OPTIONS"]
-    allow_headers = ["content-type"]
+    allow_headers = ["content-type", "x-api-key"]
   }
 }
 

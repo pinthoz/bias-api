@@ -162,13 +162,22 @@ jobs:
         run: |
           # A CloudFront config change takes minutes to reach every edge
           aws cloudfront wait distribution-deployed --id "$DIST"
-          # No key here: CloudFront must add it on the way to API Gateway
+          KEY=$(aws ssm get-parameter --name /bias-api/api-key --with-decryption \
+            --query Parameter.Value --output text)
+          echo "::add-mask::$KEY"
+          # With the key, through the site's /predict proxy
           for i in 1 2 3; do
             CODE=$(curl -s -o body.json -w '%{http_code}' -X POST "$SITE/predict" \
-              -H "Content-Type: application/json" -d '{"text": "Women are bad at math."}')
+              -H "x-api-key: $KEY" -H "Content-Type: application/json" \
+              -d '{"text": "Women are bad at math."}')
             echo "attempt $i: HTTP $CODE"
             [ "$CODE" = 200 ] && break
             sleep 10
           done
           head -c 300 body.json; echo
           [ "$CODE" = 200 ]
+          # The site must not work without a key either
+          NOKEY=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$SITE/predict" \
+            -H "Content-Type: application/json" -d '{"text": "x"}')
+          echo "without key: HTTP $NOKEY"
+          [ "$NOKEY" = 401 ]

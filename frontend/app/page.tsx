@@ -1,11 +1,31 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
-// Same origin by default: CloudFront forwards /predict to API Gateway and adds
-// the API key there, so no key ever ships to the browser. For `npm run dev`,
-// point this at the CloudFront URL (see .env.local.example).
+// Same origin by default: CloudFront forwards /predict to API Gateway. For
+// `npm run dev`, point this at the CloudFront URL (see .env.local.example).
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "/predict";
+
+// Each visitor types their own API key. It is kept only in this browser
+// (localStorage), never in the site's code.
+const KEY_STORAGE = "bias-api-key";
+
+function loadKey() {
+  try {
+    return localStorage.getItem(KEY_STORAGE) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function saveKey(key: string) {
+  try {
+    if (key) localStorage.setItem(KEY_STORAGE, key);
+    else localStorage.removeItem(KEY_STORAGE);
+  } catch {
+    // Private mode or blocked storage: the key just lasts for this visit
+  }
+}
 
 // Above this latency the request most likely hit a cold start
 const COLD_START_MS = 2000;
@@ -52,23 +72,40 @@ type Prediction = { text: string; result: Analysis; ms: number };
 
 export default function Home() {
   const [text, setText] = useState("");
+  const [apiKey, setApiKey] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<Prediction[]>([]);
 
+  // Read after mount: the static HTML is rendered without a browser
+  useEffect(() => setApiKey(loadKey()), []);
+
+  function updateKey(key: string) {
+    setApiKey(key);
+    saveKey(key.trim());
+  }
+
   async function analyse(input = text) {
     const value = input.trim();
     if (!value || loading) return;
+    if (!apiKey.trim()) {
+      setError("Enter your API key first.");
+      return;
+    }
     setLoading(true);
     setError(null);
     const t0 = performance.now();
     try {
       const res = await fetch(API_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-api-key": apiKey.trim() },
         body: JSON.stringify({ text: value }),
       });
       const ms = Math.round(performance.now() - t0);
+      if (res.status === 401) throw new Error("Enter your API key first.");
+      // A wrong key is a 403 from API Gateway, but CloudFront turns every 403
+      // into its 404 page (meant for missing files in S3), so both mean it here
+      if (res.status === 403 || res.status === 404) throw new Error("That API key is not valid.");
       if (res.status === 429) throw new Error("Too many requests. Wait a second and try again.");
       if (res.status === 503)
         throw new Error("The model is starting up (cold start). Try again in a few seconds.");
@@ -95,6 +132,30 @@ export default function Home() {
       </header>
 
       <section className="rounded-xl border border-line bg-card p-5 shadow-sm">
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <label htmlFor="api-key" className="text-sm font-semibold">
+            API key
+          </label>
+          <input
+            id="api-key"
+            type="password"
+            autoComplete="off"
+            value={apiKey}
+            onChange={(e) => updateKey(e.target.value)}
+            placeholder="Paste your key"
+            className="min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 py-1.5 font-mono text-sm outline-none focus:ring-2 focus:ring-accent"
+          />
+          {apiKey && (
+            <button
+              onClick={() => updateKey("")}
+              className="rounded-lg border border-line px-3 py-1.5 text-sm transition hover:bg-bg"
+            >
+              Forget
+            </button>
+          )}
+          <p className="w-full text-xs text-muted">Kept only in this browser.</p>
+        </div>
+
         <label htmlFor="text" className="sr-only">
           Text to analyse
         </label>
@@ -113,7 +174,7 @@ export default function Home() {
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <button
             onClick={() => analyse()}
-            disabled={loading || !text.trim()}
+            disabled={loading || !text.trim() || !apiKey.trim()}
             className="rounded-lg bg-accent px-4 py-2 font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {loading ? "Analysing…" : "Analyse"}

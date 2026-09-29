@@ -119,9 +119,10 @@ frontend/                Next.js static site: the sentence with flagged words un
   deploy.yml             push to main → build arm64 image → terraform apply → smoke test → publish site
 ```
 
-The website calls `/predict` on its own CloudFront domain. CloudFront forwards
-that path to API Gateway and adds the `x-api-key` header itself, so the key
-never reaches the browser. Calling API Gateway directly still requires the key.
+The website also needs the API key: the visitor pastes it into the page, which
+keeps it only in that browser (localStorage) and sends it as `x-api-key`. The
+site calls `/predict` on its own CloudFront domain, and CloudFront forwards
+that path, with the header, to API Gateway, so no CORS is involved.
 
 ## Rebuilding the model artifacts
 
@@ -268,8 +269,7 @@ the images (`force_delete = true` on the repository). The state bucket has
   SSM SecureString, using a constant-time comparison. Decisions are cached for
   5 minutes per key. To rotate the key, run `terraform apply -replace=random_password.api_key`.
 - The stage is throttled to 2 requests/s with bursts of 5, which caps the cost
-  of abuse even with a leaked key. The website's `/predict` proxy is open to
-  anyone, so it shares that same budget.
+  of abuse even with a leaked key. The website shares that same budget.
 - Each role gets the minimum: the model Lambda can only write logs, the
   authorizer can also read that one parameter, and API Gateway may invoke each
   function only from this API (`aws_lambda_permission` with `source_arn`). The
