@@ -201,6 +201,19 @@ data "aws_iam_policy_document" "deploy" {
     resources = ["arn:aws:dynamodb:${var.region}:${local.account}:table/${var.project}-*"]
   }
   statement {
+    # Daily monitoring run (../monitor.tf)
+    sid       = "Scheduler"
+    actions   = ["scheduler:*"]
+    resources = ["arn:aws:scheduler:${var.region}:${local.account}:schedule/default/${var.project}-*"]
+  }
+  statement {
+    sid = "Dashboards"
+    actions = [
+      "cloudwatch:GetDashboard", "cloudwatch:PutDashboard", "cloudwatch:DeleteDashboards",
+    ]
+    resources = ["arn:aws:cloudwatch::${local.account}:dashboard/${var.project}-*"]
+  }
+  statement {
     sid       = "SiteBucket"
     actions   = ["s3:*"]
     resources = ["arn:aws:s3:::${var.project}-site-*", "arn:aws:s3:::${var.project}-site-*/*"]
