@@ -195,6 +195,12 @@ data "aws_iam_policy_document" "deploy" {
     resources = ["arn:aws:sns:${var.region}:${local.account}:${var.project}-*"]
   }
   statement {
+    # Prediction counters for drift / fairness monitoring (../dynamodb.tf)
+    sid       = "DynamoDB"
+    actions   = ["dynamodb:*"]
+    resources = ["arn:aws:dynamodb:${var.region}:${local.account}:table/${var.project}-*"]
+  }
+  statement {
     sid       = "SiteBucket"
     actions   = ["s3:*"]
     resources = ["arn:aws:s3:::${var.project}-site-*", "arn:aws:s3:::${var.project}-site-*/*"]
