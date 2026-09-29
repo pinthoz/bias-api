@@ -13,6 +13,8 @@ A Next.js website on CloudFront shows the sentence with the biased words
 underlined by category. All the infrastructure is defined in Terraform and
 deployed by GitHub Actions on every push to `main`.
 
+![The Bias Detector website: API key field, the sentence to analyse, the result with the bias categories, and recent analyses](docs/website.png)
+
 ```
 browser ──► CloudFront ──/*────────► S3 (static Next.js site)
                 │
@@ -148,6 +150,7 @@ infra/                   Terraform (state in S3)
   authorizer/            authorizer source code
   bootstrap/             one-time setup: state bucket, GitHub OIDC deploy role
 frontend/                Next.js static site (see frontend/README.md)
+docs/                    README images
 .github/workflows/
   deploy.yml             push to main → build arm64 image → terraform apply → smoke test → publish site
 ```
@@ -156,7 +159,10 @@ frontend/                Next.js static site (see frontend/README.md)
 
 The site ([frontend/](frontend/)) shows the analysed sentence with each flagged
 word underlined in its category's colour (hover a word for its label scores),
-the flagged spans with their scores, and the last few sentences analysed.
+the flagged spans with their scores, and the last few sentences analysed, with
+a coloured dot per category and the request time (screenshot above). On a
+monitor it uses two columns, input on the left and result on the right, so
+everything fits without scrolling.
 
 It needs the API key too: the visitor pastes it into the page, which keeps it
 only in that browser (localStorage) and sends it as `x-api-key`. The site calls
