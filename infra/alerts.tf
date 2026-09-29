@@ -102,6 +102,19 @@ resource "aws_cloudwatch_dashboard" "monitoring" {
           ]
         }
       },
+    {
+        type = "metric", x = 0, y = 12, width = 24, height = 6
+        properties = {
+          title  = "Bias categories (share of texts with each category)"
+          region = var.region
+          period = 3600
+          metrics = [[{
+            expression = "SEARCH('{BiasApi/Monitoring,Tag} MetricName=\"TagRate\"', 'Maximum', 3600)"
+            id         = "tags"
+          }]]
+        }
+      },
+
     ]
   })
 }
