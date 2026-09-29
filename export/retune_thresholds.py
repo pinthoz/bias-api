@@ -117,7 +117,10 @@ def run_lambda(seqs):
                  "--payload", f"fileb://{req}", str(resp)],
                 check=True, capture_output=True,
             )
-            out += [np.array(p) for p in json.loads(resp.read_text())["probs"]]
+            body = json.loads(resp.read_text())
+            if "probs" not in body:
+                raise SystemExit(f"{FUNCTION} has no eval hook (not deployed yet?): {str(body)[:200]}")
+            out += [np.array(p) for p in body["probs"]]
     return out
 
 

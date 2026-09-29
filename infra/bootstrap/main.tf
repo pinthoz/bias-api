@@ -175,6 +175,9 @@ data "aws_iam_policy_document" "deploy" {
     sid = "Describe"
     actions = [
       "logs:DescribeLogGroups", "ssm:DescribeParameters", "cloudwatch:DescribeAlarms",
+      # Looking up the AWS-managed cache / origin-request policies by name
+      "cloudfront:ListCachePolicies", "cloudfront:GetCachePolicy",
+      "cloudfront:ListOriginRequestPolicies", "cloudfront:GetOriginRequestPolicy",
     ]
     resources = ["*"]
   }
@@ -190,6 +193,18 @@ data "aws_iam_policy_document" "deploy" {
     sid       = "Sns"
     actions   = ["sns:*"]
     resources = ["arn:aws:sns:${var.region}:${local.account}:${var.project}-*"]
+  }
+  statement {
+    sid       = "SiteBucket"
+    actions   = ["s3:*"]
+    resources = ["arn:aws:s3:::${var.project}-site-*", "arn:aws:s3:::${var.project}-site-*/*"]
+  }
+  statement {
+    # CloudFront ARNs carry random ids, not names, so this cannot be narrowed
+    # to this project's distribution
+    sid       = "CloudFront"
+    actions   = ["cloudfront:*"]
+    resources = ["arn:aws:cloudfront::${local.account}:*"]
   }
   statement {
     sid = "Alarms"

@@ -1,0 +1,97 @@
+{
+  "machine": "Lambda bias-api (arm64)",
+  "onnxruntime": "see app/requirements.txt",
+  "split": {
+    "sentences": 3739,
+    "val": 300,
+    "test": 747
+  },
+  "thresholds": {
+    "published_fp32": [
+      0.4265,
+      0.4071,
+      0.3938,
+      0.3462,
+      0.3669,
+      0.3184,
+      0.363
+    ],
+    "int8": [
+      0.4426,
+      0.4235,
+      0.3564,
+      0.3465,
+      0.3521,
+      0.3,
+      0.3657
+    ]
+  },
+  "test": {
+    "int8 + published thresholds": {
+      "GEN": {
+        "precision": 0.8101,
+        "recall": 0.6658,
+        "f1": 0.7309
+      },
+      "UNFAIR": {
+        "precision": 0.4335,
+        "recall": 0.4253,
+        "f1": 0.4293
+      },
+      "STEREO": {
+        "precision": 0.792,
+        "recall": 0.6291,
+        "f1": 0.7012
+      },
+      "micro": {
+        "precision": 0.6453,
+        "recall": 0.5894,
+        "f1": 0.6161
+      }
+    },
+    "int8 + thresholds.int8.json": {
+      "GEN": {
+        "precision": 0.8322,
+        "recall": 0.6451,
+        "f1": 0.7268
+      },
+      "UNFAIR": {
+        "precision": 0.3607,
+        "recall": 0.4632,
+        "f1": 0.4055
+      },
+      "STEREO": {
+        "precision": 0.7502,
+        "recall": 0.7149,
+        "f1": 0.7321
+      },
+      "micro": {
+        "precision": 0.6136,
+        "recall": 0.6312,
+        "f1": 0.6223
+      }
+    },
+    "int8 + re-tuned thresholds": {
+      "GEN": {
+        "precision": 0.8067,
+        "recall": 0.6711,
+        "f1": 0.7327
+      },
+      "UNFAIR": {
+        "precision": 0.4177,
+        "recall": 0.4758,
+        "f1": 0.4449
+      },
+      "STEREO": {
+        "precision": 0.7551,
+        "recall": 0.7094,
+        "f1": 0.7316
+      },
+      "micro": {
+        "precision": 0.6197,
+        "recall": 0.6404,
+        "f1": 0.6299
+      }
+    }
+  }
+}

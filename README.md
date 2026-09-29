@@ -111,11 +111,17 @@ infra/                   Terraform (state in S3)
   main.tf                ECR, Lambda, API Gateway routes and stage
   auth.tf                API key in SSM + Lambda authorizer
   alarms.tf              5xx-rate alarm → SNS → email
+  frontend.tf            private S3 bucket + CloudFront for the website, proxying /predict to the API
   authorizer/            authorizer source code
   bootstrap/             one-time setup: state bucket, GitHub OIDC deploy role
+frontend/                Next.js static site: the sentence with flagged words underlined by category
 .github/workflows/
-  deploy.yml             push to main → build arm64 image → terraform apply → smoke test
+  deploy.yml             push to main → build arm64 image → terraform apply → smoke test → publish site
 ```
+
+The website calls `/predict` on its own CloudFront domain. CloudFront forwards
+that path to API Gateway and adds the `x-api-key` header itself, so the key
+never reaches the browser. Calling API Gateway directly still requires the key.
 
 ## Rebuilding the model artifacts
 
@@ -134,7 +140,8 @@ python export/quantize_compare.py
 # 3. Re-tune the thresholds for int8 on the original validation split.
 #    Needs the cleaned GUS-Net corpus from the Attention Atlas repo, checked
 #    out next to this one (../attention-atlas/dataset/old-datasets/).
-python export/retune_thresholds.py
+python export/retune_thresholds.py                 # on this machine (x86)
+TARGET=lambda python export/retune_thresholds.py   # on the deployed Lambda (what is served)
 ```
 
 ## Quantization and threshold re-tuning
@@ -143,7 +150,7 @@ The fp32 model was too slow to cold-start on Lambda (see below), so the API
 serves a dynamically quantized **int8** model. Quantization is not neutral for a
 bias detector: it shifts the output probabilities, and the thresholds tuned for
 fp32 then move decisions near the boundary. The thresholds were therefore
-re-tuned for the int8 model.
+re-tuned for the int8 model, on the hardware that serves it.
 
 `retune_thresholds.py` reproduces the split and procedure used to train the
 published checkpoint (Attention Atlas, `colab_sparse_training_clean.ipynb`): the
@@ -153,17 +160,34 @@ sentences), and a per-label grid search plus bounded refinement. As a check, the
 same procedure applied to the fp32 model gives back the published thresholds
 exactly, and its test metrics match the model card.
 
-Test set, F1 / recall per category ([export/retune_results.json](export/retune_results.json)):
+Two details decide what the thresholds must be tuned on:
 
-| | fp32 (reference) | int8, fp32 thresholds | **int8, re-tuned (deployed)** |
-|---|---|---|---|
-| GEN | 0.741 / 0.682 | 0.740 / 0.694 | 0.729 / 0.664 |
-| UNFAIR | 0.451 / 0.497 | 0.424 / 0.423 | 0.435 / 0.478 |
-| STEREO | 0.733 / 0.708 | 0.705 / 0.635 | 0.732 / 0.707 |
+- **Each sentence runs alone, unpadded**, as in an API request. Dynamic int8
+  quantization scales activations over the whole input tensor, so padding and
+  batch neighbours change the probabilities.
+- **The CPU matters.** onnxruntime's int8 kernels differ per architecture (x86
+  without VNNI saturates intermediate sums). Sending the same 256 sentences to
+  the arm64 Lambda and to an x86 laptop gave different labels on 7.3 % of tokens
+  and a different biased/not-biased verdict on 7 sentences
+  ([export/parity_check.py](export/parity_check.py)). Emulating arm64 with QEMU
+  did not reproduce Graviton's numbers either. So the deployed thresholds were
+  tuned on probabilities computed by the Lambda itself (`TARGET=lambda`, through
+  a direct-invocation hook that API Gateway cannot reach).
 
-With the fp32 thresholds, int8 loses about 7 points of stereotype recall.
-Re-tuning recovers it and leaves every category within about 0.016 F1 of fp32.
-GEN pays a small part of the cost.
+Test set on the Lambda (arm64), F1 / recall per category
+([export/retune_results.arm64.json](export/retune_results.arm64.json)):
+
+| | fp32 (reference) | int8, fp32 thresholds | int8, thresholds tuned on x86 | **int8, tuned on arm64 (deployed)** |
+|---|---|---|---|---|
+| GEN | 0.741 / 0.682 | 0.731 / 0.666 | 0.727 / 0.645 | 0.733 / 0.671 |
+| UNFAIR | 0.451 / 0.497 | 0.429 / 0.425 | 0.406 / 0.463 | 0.445 / 0.476 |
+| STEREO | 0.733 / 0.708 | 0.701 / 0.629 | 0.732 / 0.715 | 0.732 / 0.709 |
+| micro | 0.637 / 0.645 | 0.616 / 0.589 | 0.622 / 0.631 | 0.630 / 0.640 |
+
+With the fp32 thresholds, int8 loses about 8 points of stereotype recall.
+Thresholds tuned on x86 recover STEREO but cost UNFAIR on Graviton. Tuning on
+the serving hardware leaves every category within 0.008 F1 of fp32. The x86
+results are in [export/retune_results.json](export/retune_results.json).
 
 Per-channel weight quantization was also tried. On x86 CPUs it breaks the
 model: UNFAIR F1 falls to 0, and 558 of 748 sentences flip their biased/not-biased
@@ -183,9 +207,7 @@ it is retried inside the invocation. API Gateway HTTP APIs time out at 30 s.
 
 A warm request takes about 40 ms. On x86_64, the model's output on AWS matched
 the local ONNX run to the last reported decimal. The function now runs on arm64
-(Graviton), where onnxruntime uses different int8 kernels;
-[export/parity_check.py](export/parity_check.py) measures how far its output
-drifts from the local x86 run.
+(Graviton), which is about 20 % cheaper per GB-second.
 
 ## Deploying
 
@@ -246,7 +268,8 @@ the images (`force_delete = true` on the repository). The state bucket has
   SSM SecureString, using a constant-time comparison. Decisions are cached for
   5 minutes per key. To rotate the key, run `terraform apply -replace=random_password.api_key`.
 - The stage is throttled to 2 requests/s with bursts of 5, which caps the cost
-  of abuse even with a leaked key.
+  of abuse even with a leaked key. The website's `/predict` proxy is open to
+  anyone, so it shares that same budget.
 - Each role gets the minimum: the model Lambda can only write logs, the
   authorizer can also read that one parameter, and API Gateway may invoke each
   function only from this API (`aws_lambda_permission` with `source_arn`). The

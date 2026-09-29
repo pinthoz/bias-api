@@ -1,5 +1,5 @@
 # Every push to main: build the arm64 image, push it to ECR, terraform apply,
-# then smoke-test the live API.
+# smoke-test the live API, then publish the website to S3 + CloudFront.
 #
 # AWS access is keyless: GitHub issues an OIDC token for this run and AWS
 # exchanges it for temporary credentials of the role created in
@@ -64,6 +64,10 @@ jobs:
     defaults:
       run:
         working-directory: infra
+    outputs:
+      site_bucket: ${{ steps.site.outputs.bucket }}
+      cloudfront_id: ${{ steps.site.outputs.dist }}
+      site_url: ${{ steps.site.outputs.url }}
     env:
       TF_VAR_image_tag: ${{ github.sha }}
       TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
@@ -109,3 +113,62 @@ jobs:
             -H "Content-Type: application/json" -d '{"text": "x"}')
           echo "without key: HTTP $NOKEY"
           [ "$NOKEY" = 401 ]
+
+      - name: Site outputs
+        id: site
+        run: |
+          echo "bucket=$(terraform output -raw site_bucket)" >> "$GITHUB_OUTPUT"
+          echo "dist=$(terraform output -raw cloudfront_id)" >> "$GITHUB_OUTPUT"
+          echo "url=$(terraform output -raw site_url)" >> "$GITHUB_OUTPUT"
+
+  frontend:
+    needs: deploy
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      BUCKET: ${{ needs.deploy.outputs.site_bucket }}
+      DIST: ${{ needs.deploy.outputs.cloudfront_id }}
+      SITE: ${{ needs.deploy.outputs.site_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - run: npm ci
+
+      - run: npm run build
+
+      # Same steps as frontend/deploy.sh
+      - name: Publish
+        run: |
+          aws s3 sync out/_next "s3://$BUCKET/_next" --delete \
+            --cache-control "public,max-age=31536000,immutable"
+          aws s3 sync out/ "s3://$BUCKET" --delete --exclude "_next/*" \
+            --cache-control "public,max-age=60"
+          aws cloudfront create-invalidation --distribution-id "$DIST" --paths "/*" >/dev/null
+
+      - name: Smoke test through the site
+        run: |
+          # A CloudFront config change takes minutes to reach every edge
+          aws cloudfront wait distribution-deployed --id "$DIST"
+          # No key here: CloudFront must add it on the way to API Gateway
+          for i in 1 2 3; do
+            CODE=$(curl -s -o body.json -w '%{http_code}' -X POST "$SITE/predict" \
+              -H "Content-Type: application/json" -d '{"text": "Women are bad at math."}')
+            echo "attempt $i: HTTP $CODE"
+            [ "$CODE" = 200 ] && break
+            sleep 10
+          done
+          head -c 300 body.json; echo
+          [ "$CODE" = 200 ]

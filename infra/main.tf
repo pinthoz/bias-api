@@ -108,6 +108,15 @@ resource "aws_lambda_function" "api" {
 resource "aws_apigatewayv2_api" "http" {
   name          = "${var.project}-http"
   protocol_type = "HTTP"
+
+  # The deployed site calls the API through CloudFront on its own domain, so
+  # it needs no CORS. This is only for `npm run dev`, which calls the
+  # CloudFront URL from localhost (see frontend/.env.local.example)
+  cors_configuration {
+    allow_origins = ["http://localhost:3000"]
+    allow_methods = ["POST", "OPTIONS"]
+    allow_headers = ["content-type"]
+  }
 }
 
 resource "aws_apigatewayv2_integration" "lambda" {

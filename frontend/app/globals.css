@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+/* Colour tokens: light by default, dark follows the OS setting */
+:root {
+  --bg: #f6f5f1;
+  --card: #ffffff;
+  --ink: #1d1d1b;
+  --muted: #6b6a66;
+  --line: #e3e1da;
+  --accent: #3b5bdb;
+  --ok: #2f9e44;
+  --warn: #e8590c;
+  /* Bias categories */
+  --gen: #7048e8;
+  --unfair: #e03131;
+  --stereo: #e8590c;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161614;
+    --card: #201f1c;
+    --ink: #eceae4;
+    --muted: #9a988f;
+    --line: #33322e;
+    --accent: #748ffc;
+    --ok: #51cf66;
+    --warn: #ff922b;
+    --gen: #9775fa;
+    --unfair: #ff6b6b;
+    --stereo: #ff922b;
+  }
+}
+
+/* Expose the tokens as Tailwind colours: bg-card, text-muted, border-line, … */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-card: var(--card);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-gen: var(--gen);
+  --color-unfair: var(--unfair);
+  --color-stereo: var(--stereo);
+  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+}
