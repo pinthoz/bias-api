@@ -16,3 +16,23 @@ variable "alert_email" {
   description = "Where the CloudWatch error-rate alarm sends email"
   type        = string
 }
+
+variable "monitor_schedule" {
+  type    = string
+  default = "cron(0 10 * * ? *)"  
+}
+
+variable "bucket_minutes" {
+  type    = number
+  default = 60 # 1 hour buckets 
+}
+
+variable "window_minutes" {
+  type    = number
+  default = 1440 # 24 hours actual window 
+}
+
+variable "baseline_minutes" {
+  type    = number
+  default = 10080  # 7 days before current window
+}

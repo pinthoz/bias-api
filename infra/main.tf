@@ -11,7 +11,7 @@ terraform {
     }
     archive = {
       source  = "hashicorp/archive"
-      version = "~> 2.7"
+      version = "~> 2.4"
     }
   }
 
@@ -97,6 +97,13 @@ resource "aws_lambda_function" "api" {
   architectures = ["arm64"] # Graviton: ~20 % cheaper per GB-second than x86_64
   memory_size   = 3008
   timeout       = 90
+
+  environment {
+    variables = {
+      METRICS_TABLE  = aws_dynamodb_table.metrics.name
+      BUCKET_MINUTES = var.bucket_minutes
+    }
+  }
 
   depends_on = [
     aws_iam_role_policy_attachment.logs,
